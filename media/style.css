@@ -1,0 +1,206 @@
+/* NOTE: using var() with fallback so it renders in plain pages too */
+
+:root {
+    --accent: var(--vscode-textLink-foreground, #3794ff);
+    --muted: var(--vscode-descriptionForeground, #9d9d9d);
+    --text: var(--vscode-editor-foreground, #e0e0e0);
+    --warning: #cca700;
+    --warning-background: rgba(204, 167, 0, 0.12);
+}
+
+/* "important" is necessary because of attributes like .grids { display: flex } */
+[hidden] {
+    display: none !important;
+}
+
+body {
+    font-family: var(--vscode-font-family, sans-serif);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    padding: 16px;
+}
+
+.title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 2px;
+}
+
+.signature {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 14px;
+    color: var(--muted);
+    user-select: none;
+    margin: 0 0 12px;
+}
+
+input.param {
+    width: 4.5ch;
+    text-align: center;
+    font: inherit;
+    color: var(--text);
+    background: var(--vscode-input-background, #2a2a2a);
+    border: 1px solid var(--vscode-input-border, #888);
+    border-radius: 3px;
+    padding: 1px 4px;
+    user-select: text;
+}
+
+input.param:focus {
+    outline: 1px solid var(--vscode-focusBorder, #3c8cff);
+}
+
+input.param.invalid {
+    color: var(--vscode-errorForeground, #f55);
+    border-color: var(--vscode-errorForeground, #f55);
+}
+
+.result {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.errors {
+    color: var(--vscode-errorForeground, #f55);
+    white-space: pre-line;
+    margin-bottom: 8px;
+}
+
+.grids {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: flex-start;
+}
+
+figure {
+    margin: 0;
+}
+
+figcaption {
+    font-size: 15px;
+    font-weight: 600;
+    padding-bottom: 3px;
+    margin-bottom: 8px;
+    border-bottom: 2px solid var(--accent); /* line below text, above grid */
+}
+
+hr {
+    border: 0;
+    margin: 12px 0;
+    border-bottom: 2px solid var(--accent); /* same as figcaption's */
+}
+
+canvas {
+    display: block;
+    cursor: crosshair;
+}
+
+.kernel-note {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 14px 0 4px;
+}
+
+button {
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--vscode-button-foreground, #fff);
+    background: var(--vscode-button-background, #0e639c);
+    border: none;
+    border-radius: 4px;
+    padding: 8px 20px;
+    cursor: pointer;
+    box-shadow:
+        0 2px 4px rgba(0, 0, 0, 0.12), 
+        0 2px 2px rgba(0, 0, 0, 0.24);
+}
+
+button:hover {
+    background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+button:active {
+    transform: translateY(2px);
+    box-shadow: none;
+}
+
+button.secondary {
+    font-size: 13px;
+    font-weight: 400;
+    padding: 4px 12px;
+    color: var(--vscode-button-secondaryForeground, #fff);
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    margin: 0px 0 12px;
+}
+
+button.secondary:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.speed {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+}
+
+h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 6px;
+}
+
+.summary {
+    font-family: var(--vscode-editor-font-family, monospace);
+    white-space: pre;
+    margin-bottom: 12px;
+}
+
+/* warning similar to github's md "[!WARNING]",
+only shown when some cells are never reached */
+.warning {
+    margin: 4px 0 12px;
+    padding: 8px 12px;
+    border-left: 4px solid var(--warning);
+    background: var(--warning-background);
+}
+
+.warning strong {
+    color: var(--warning);
+}
+
+.warning p {
+    margin: 4px 0 0;
+}
+
+.param-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.param-label {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--vscode-editor-font-family, monospace);
+    color: var(--muted);
+    user-select: none;
+    font-size: 12px; /* size */
+    line-height: 1.2;
+    margin-bottom: 2px; /* height */
+}
+
+.muted {
+    color: var(--muted);
+}

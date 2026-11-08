@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convey</title>
+    <!-- relative paths on purpose: extension.ts swaps them for webview uris, browser preview uses them as is -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+<h1 class="title">Convey</h1>
+
+<pre class="signature">WIDTH  = <input class="param" data-param="width"> <span class="result" id="outputWidth"></span>
+HEIGHT = <input class="param" data-param="height"> <span class="result" id="outputHeight"></span>
+
+torch.nn.Conv2d(
+    kernel_size = ( <span class="param-wrapper"><span class="param-label">H</span><input class="param" data-param="kernelHeight"></span>, <span class="param-wrapper"><span class="param-label">W</span><input class="param" data-param="kernelWidth"></span> ),
+    stride      = ( <input class="param" data-param="strideHeight">, <input class="param" data-param="strideWidth"> ),
+    padding     = ( <input class="param" data-param="paddingHeight">, <input class="param" data-param="paddingWidth"> ),
+    dilation    = ( <input class="param" data-param="dilationHeight">, <input class="param" data-param="dilationWidth"> ),
+)
+</pre>
+
+<!-- error messages -->
+<div id="errors" class="errors"></div>
+
+<!-- input & output grid, next to each other or one below the other -->
+<div id="grids" class="grids">
+    <figure>
+        <figcaption id="inputCaption"></figcaption>
+        <canvas id="inputCanvas"></canvas>
+    </figure>
+
+    <figure>
+        <figcaption id="outputCaption"></figcaption>
+        <canvas id="outputCanvas"></canvas>
+    </figure>
+</div>
+
+<div id="kernelNote" class="kernel-note"></div>
+
+<div id="sweepControls" class="controls">
+    <button id="playButton" type="button">▶ Play Sweep</button>
+
+    <!-- slider -->
+    <label class="speed">Speed
+        <span>1x</span>
+        <input id="speedSlider" type="range" min=1 max=4 step=1 value=2>
+        <span>4x</span>
+    </label>
+</div>
+
+<button id="resetButton" class="secondary" type="button">Reset Values</button>
+
+<div id="warning" class="warning" hidden>
+    <strong>Warning</strong>
+
+    <p id="warningText"></p>
+</div>
+
+<pre class="signature">
+C_in  = <input class="param" data-param="inChannels">
+C_out = <input class="param" data-param="outChannels">
+</pre>
+
+<div id="channelsError" class="errors">C_in and C_out must be whole numbers from 1 to 9999</div>
+
+<div id="details" hidden>
+
+    <h2>Details:</h2>
+
+    <div id="summary" class="summary"></div>
+
+    <div id="parameterSummary" class="summary"></div>
+
+    <p class="muted">(The + 1 is the bias, drop it if you use bias=False)</p>
+</div>
+
+<hr>
+
+<script src="main.js"></script>
+</body>
+
+</html>
