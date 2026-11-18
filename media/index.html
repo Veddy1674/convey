@@ -63,9 +63,13 @@ torch.nn.Conv2d(
 <pre class="signature">
 C_in  = <input class="param" data-param="inChannels">
 C_out = <input class="param" data-param="outChannels">
+Bias  = <input class="param" data-param="bias">
 </pre>
 
-<div id="channelsError" class="errors">C_in and C_out must be whole numbers from 1 to 9999</div>
+<div id="channelsError" class="errors">
+C_in and C_out must be whole numbers from 1 to 9999
+Bias must be 0 or 1
+</div>
 
 <div id="details" hidden>
 
@@ -74,8 +78,6 @@ C_out = <input class="param" data-param="outChannels">
     <div id="summary" class="summary"></div>
 
     <div id="parameterSummary" class="summary"></div>
-
-    <p class="muted">(The + 1 is the bias, drop it if you use bias=False)</p>
 </div>
 
 <hr>
