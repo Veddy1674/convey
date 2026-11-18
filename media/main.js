@@ -4,6 +4,7 @@ const MAX_GRID_SIDE = 64; // above this grids become a solid rectangle
 const MAX_CELL_SIZE = 16; // in px
 const MIN_CELL_SIZE = 3; // in px
 const MIN_KERNEL_PX = 3; // scaled kernel smaller than this is not drawn
+const MIN_OVERVIEW_PX = 4; // minimum visual thickness for extreme aspect ratios in overview mode
 const SWEEP_DURATION_MS = 4500; // duration at 1.0x speed
 const GAP_COLUMNS = 3; // spacing between the two grids, in cells
 
@@ -18,6 +19,7 @@ const PARAM_DEFINITIONS = {
     height: { label: 'HEIGHT', min: 1, max: 9999, defaultValue: '16' },
     inChannels: { label: 'in_channels', min: 1, max: 9999, defaultValue: '3', optional: true },
     outChannels: { label: 'out_channels', min: 1, max: 9999, defaultValue: '64', optional: true },
+    bias: { label: 'Bias', min: 0, max: 1, defaultValue: '1', optional: true },
 };
 
 // each conv option exists once per axis: kernelHeight, kernelWidth, strideHeight, ...
@@ -196,6 +198,7 @@ function prepareCanvas(canvas, cssWidth, cssHeight) {
     return context;
 }
 
+// TODO: during playSweep, only the active cell moves, so redrawing the whole grid and grid lines every frame is redundant
 function drawGrid(canvas, rowCount, colCount, cellSize, getCellPaint) {
     const gridWidth = colCount * cellSize;
     const gridHeight = rowCount * cellSize;
@@ -237,16 +240,19 @@ function drawGrid(canvas, rowCount, colCount, cellSize, getCellPaint) {
 }
 
 // cells too big to render, so a rect is rendered instead
+// NOTE: extreme aspect ratios (e.g. 1 x 9999) compress the thin side below 1px, so we clamp to MIN_OVERVIEW_PX
 function drawOverviewBase(canvas, width, height) {
-    const context = prepareCanvas(canvas, width, height);
+    const drawWidth = Math.max(width, MIN_OVERVIEW_PX);
+    const drawHeight = Math.max(height, MIN_OVERVIEW_PX);
+    const context = prepareCanvas(canvas, drawWidth, drawHeight);
 
     context.fillStyle = foregroundColor();
     context.strokeStyle = foregroundColor();
     context.globalAlpha = 0.1;
-    context.fillRect(0, 0, width, height);
+    context.fillRect(0, 0, drawWidth, drawHeight);
 
     context.globalAlpha = 0.5;
-    context.strokeRect(0.5, 0.5, width - 1, height - 1);
+    context.strokeRect(0.5, 0.5, drawWidth - 1, drawHeight - 1);
 
     context.globalAlpha = 1;
     return context;
@@ -359,6 +365,12 @@ function hideGrids() {
     sweepControls.hidden = true;
 }
 
+function strongText(text) {
+    const el = document.createElement('strong');
+    el.textContent = text;
+    return el;
+}
+
 function render() {
     stopSweep();
     saveState();
@@ -368,7 +380,8 @@ function render() {
 
     outputWidthLabel.textContent = '';
     outputHeightLabel.textContent = '';
-    parameterSummary.textContent = '';
+    parameterSummary.replaceChildren();
+    parameterSummary.hidden = true;
     channelsError.hidden = true;
 
     if (errorMessages.length > 0) {
@@ -404,38 +417,40 @@ function render() {
 
     // NOTE: in pytorch docs, "B" is usually referred to as "N" (n of samples)
     // but I rather keep it "B" for "Batch Size", it is the same exact thing:
-    const inputShape = `(B, ${values.inChannels}, ${values.height}, ${values.width})`;
-    const outputShape = `(B, ${values.outChannels}, ${rowAxis.outputSize}, ${colAxis.outputSize})`;
+    const inputShape = `(B, ${values.inChannels ?? 'C_in'}, ${values.height}, ${values.width})`;
+    const outputShape = `(B, ${values.outChannels ?? 'C_out'}, ${rowAxis.outputSize}, ${colAxis.outputSize})`;
     // ^^^ there isn't a real reason padding was avoided above, it just feels extra
 
     const inputText  = `${pad(values.width, widthDigits)} x ${pad(values.height, heightDigits)}`;
     const outputText = `${pad(colAxis.outputSize, widthDigits)} x ${pad(rowAxis.outputSize, heightDigits)}`;
 
-    summary.textContent = [
-        `Input:  ${inputText} — Shape: ${inputShape}`,
-        `Output: ${outputText} — Shape: ${outputShape}`,
-    ].join('\n');
+    summary.replaceChildren(
+        'Input:  ', strongText(inputText), ' — Shape: ', strongText(inputShape), '\n',
+        'Output: ', strongText(outputText), ' — Shape: ', strongText(outputShape)
+    );
 
-    // secondary details (paramaters, nn flatten):
-    if (values.inChannels && values.outChannels) {
+    // secondary details (parameters, nn flatten):
+    if (values.inChannels !== undefined && values.outChannels !== undefined && values.bias !== undefined) {
         const weightsPerFilter = values.inChannels * values.kernelHeight * values.kernelWidth;
-        const parameterCount = values.outChannels * (weightsPerFilter + 1); // + 1 is the bias of each filter
+        const parameterCount = values.outChannels * (weightsPerFilter + values.bias);
         const flattenedSize = values.outChannels * rowAxis.outputSize * colAxis.outputSize;
 
-        parameterSummary.textContent = [
-            'Parameters: C_out x (C_in x kH x kW + 1)',
-            `             = ${values.outChannels} x (${values.inChannels} x ${values.kernelHeight} x ${values.kernelWidth} + 1) = ${parameterCount}`,
-            ``,
-            'nn.Flatten(): C_out x H_out x W_out',
-            `             = ${values.outChannels} x ${rowAxis.outputSize} x ${colAxis.outputSize} = ${flattenedSize}`,
-        ].join('\n');
+        parameterSummary.replaceChildren(
+            'Parameters: C_out x (C_in x kH x kW + Bias)\n',
+            `             = ${values.outChannels} x (${values.inChannels} x ${values.kernelHeight} x ${values.kernelWidth} + ${values.bias}) = `,
+            strongText(String(parameterCount)),
+            '\n\n',
+            'nn.Flatten(): C_out x H_out x W_out\n',
+            `             = ${values.outChannels} x ${rowAxis.outputSize} x ${colAxis.outputSize} = `,
+            strongText(String(flattenedSize))
+        );
 
+        parameterSummary.hidden = false;
         channelsError.hidden = true;
-    }
-    else // C_in or C_out have invalid values
-    {
+    } else {
+        // invalid optional params (C_in, C_out, Bias) hide parameterSummary but keep #summary visible
+        parameterSummary.hidden = true;
         channelsError.hidden = false;
-        details.hidden = true;
     }
 
     const reachedRows = reachedPositions(rowAxis);
@@ -445,6 +460,7 @@ function render() {
     const unreachedColCount = colAxis.paddedSize - reachedCols.count;
 
     // if any unreached cells exist:
+    // NOTE: in overview mode (paddedSize > MAX_GRID_SIDE), red cells are not drawn individually even though this warning mentions them
     if (unreachedRowCount > 0 || unreachedColCount > 0) {
         warnRedCells.hidden = false;
 
@@ -619,8 +635,9 @@ function initialize() {
         input.value = savedState?.[name] ?? definition.defaultValue;
 
         input.addEventListener('input', () => {
-            // digits only, strip anything else when typed/pasted
-            const adjusted = input.value.replace(/\D/g, '');
+            // bias only allows 0 or 1; other params allow digits only
+            const pattern = name === 'bias' ? /[^01]/g : /\D/g;
+            const adjusted = input.value.replace(pattern, '');
 
             if (adjusted !== input.value) {
                 input.value = adjusted;
