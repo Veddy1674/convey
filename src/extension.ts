@@ -6,19 +6,22 @@ const VIEW_ID = 'conveyVisualizer'; // must match onWebviewPanel in package.json
 const VIEW_NAME = 'Convey';
 
 const CONV2D_CALL_PATTERN = /\bConv2d\s*\(/; // \b so that LazyConv2d( is not matched
-const MAX_CALL_LINES = 10; // how far below the first line the closing parenthesis is searched
+const MAX_CALL_LINES = 8; // how far below the first line the closing parenthesis is searched
 
 // keys should match PARAM_DEFINITIONS in main.js
 type ConvParams = Record<string, string>;
 
-// torch.nn.Conv2d positional order: in_channels, out_channels, kernel_size, stride, padding, dilation
-// the two channel entries have no matching param, they only keep the positions right
-const POSITIONAL_NAMES = ['inChannels', 'outChannels', 'kernelSize', 'stride', 'padding', 'dilation'];
+// torch.nn.Conv2d positional order: in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias
+// groups has no matching param, it only keeps the positional index of bias right
+const POSITIONAL_NAMES = ['inChannels', 'outChannels', 'kernelSize', 'stride', 'padding', 'dilation', 'groups', 'bias'];
 const KEYWORD_TO_PARAM: Record<string, string> = {
+    in_channels: 'inChannels',
+    out_channels: 'outChannels',
     kernel_size: 'kernelSize',
     stride: 'stride',
     padding: 'padding',
     dilation: 'dilation',
+    bias: 'bias',
 };
 const PARAM_PREFIX: Record<string, string> = {
     kernelSize: 'kernel',
@@ -27,9 +30,14 @@ const PARAM_PREFIX: Record<string, string> = {
     dilation: 'dilation',
 };
 
-// pytorch defaults, used when an argument is missing or is not a plain number
+// pytorch defaults (plus 3/64 channels and 3x3 kernel), used when an argument is missing or is not a plain literal
 // TODO: padding='same' is treated as 0 for now
 const CONV2D_DEFAULTS: ConvParams = {
+    inChannels: '3',
+    outChannels: '64',
+    bias: '1',
+    kernelHeight: '3',
+    kernelWidth: '3',
     strideHeight: '1',
     strideWidth: '1',
     paddingHeight: '0',
@@ -39,6 +47,8 @@ const CONV2D_DEFAULTS: ConvParams = {
 };
 
 let currentPanel: vscode.WebviewPanel | undefined;
+let isWebviewReady = false;
+let pendingParams: ConvParams | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
@@ -65,6 +75,11 @@ export function deactivate() {}
 // "Visualize in Convey" link above every line that contains "Conv2d"
 class Conv2dCodeLensProvider implements vscode.CodeLensProvider {
     provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+        // fast bailout before scanning line-by-line in files without Conv2d
+        if (!document.getText().includes('Conv2d')) {
+            return [];
+        }
+
         const codeLenses: vscode.CodeLens[] = [];
 
         for (let lineNumber = 0; lineNumber < document.lineCount; lineNumber++) {
@@ -113,10 +128,16 @@ async function openFromLine(context: vscode.ExtensionContext, lineNumber?: unkno
 
 async function showPanel(context: vscode.ExtensionContext, params?: ConvParams) {
     if (currentPanel) {
-        currentPanel.reveal(undefined, true); // keep column, keep editor focus
         if (params) {
-            currentPanel.webview.postMessage({ type: 'setParams', params });
+            if (currentPanel.visible && isWebviewReady) {
+                currentPanel.webview.postMessage({ type: 'setParams', params });
+            } else {
+                // hidden webviews reload when revealed, so queue params until 'ready' arrives
+                isWebviewReady = false;
+                pendingParams = params;
+            }
         }
+        currentPanel.reveal(undefined, true); // keep column, keep editor focus
         return;
     }
 
@@ -135,18 +156,32 @@ async function setupPanel(
     initialParams?: ConvParams
 ) {
     currentPanel = panel;
+    isWebviewReady = false;
+    pendingParams = initialParams;
+
+    let isDisposed = false;
     panel.onDidDispose(() => {
+        isDisposed = true;
         currentPanel = undefined;
+        isWebviewReady = false;
+        pendingParams = undefined;
     });
 
-    // sent on the first 'ready' only, later reloads of the webview restore from its saved state
-    let paramsToSend = initialParams;
+    // without retainContextWhenHidden, hiding the tab tears down the webview and reloads it on reveal
+    panel.onDidChangeViewState((event) => {
+        if (!event.webviewPanel.visible) {
+            isWebviewReady = false;
+        }
+    });
 
     // set listener before html, so the 'ready' message can never be missed
     panel.webview.onDidReceiveMessage((message) => {
-        if (message.type === 'ready' && paramsToSend) {
-            panel.webview.postMessage({ type: 'setParams', params: paramsToSend });
-            paramsToSend = undefined;
+        if (message?.type === 'ready') {
+            isWebviewReady = true;
+            if (pendingParams) {
+                panel.webview.postMessage({ type: 'setParams', params: pendingParams });
+                pendingParams = undefined;
+            }
         }
     });
 
@@ -154,7 +189,11 @@ async function setupPanel(
         enableScripts: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
     };
-    panel.webview.html = await getWebviewHtml(context, panel.webview);
+
+    const html = await getWebviewHtml(context, panel.webview);
+    if (!isDisposed) {
+        panel.webview.html = html;
+    }
 }
 
 async function getWebviewHtml(context: vscode.ExtensionContext, webview: vscode.Webview): Promise<string> {
@@ -180,6 +219,8 @@ async function getWebviewHtml(context: vscode.ExtensionContext, webview: vscode.
 }
 
 // returns the text between the parentheses of the Conv2d( call on that line, can span a few lines
+// NOTE: openFromCursor expects the cursor to be on the opening Conv2d( line, not on inner lines of a multi-line call!
+// TODO: handle multi-line strings ("""...""" / '''...''') so ')' or '#' inside them does not affect parentheses matching
 function extractConv2dArguments(document: vscode.TextDocument, lineNumber: number): string | undefined {
     if (lineNumber < 0 || lineNumber >= document.lineCount) {
         return undefined;
@@ -201,8 +242,35 @@ function extractConv2dArguments(document: vscode.TextDocument, lineNumber: numbe
 
     // count parentheses so "(in * 2)" inside an argument does not close the call early
     let depth = 0;
+    let quote: string | undefined;
+
     for (let index = openParenIndex; index < text.length; index++) {
         const character = text[index];
+
+        if (quote) {
+            if (character === '\\') {
+                index++; // skip escaped character
+            } else if (character === quote) {
+                quote = undefined;
+            }
+            continue;
+        }
+
+        if (character === '#') {
+            // ignore the rest of the line so comments with ')' don't close the call early
+            const newlineIndex = text.indexOf('\n', index);
+            if (newlineIndex === -1) {
+                break;
+            }
+            index = newlineIndex;
+            continue;
+        }
+
+        if (character === '\'' || character === '"') {
+            quote = character;
+            continue;
+        }
+
         if (character === '(') {
             depth++;
         } else if (character === ')') {
@@ -215,17 +283,45 @@ function extractConv2dArguments(document: vscode.TextDocument, lineNumber: numbe
     return undefined; // never closed
 }
 
-// split on commas that are not inside (), [] or {}
+// split on commas that are not inside (), [] or {}, ignoring # comments and single-line strings
 function splitTopLevelArguments(argumentsText: string): string[] {
     const parts: string[] = [];
     let depth = 0;
     let current = '';
+    let quote: string | undefined;
 
-    for (const character of argumentsText) {
+    for (let index = 0; index < argumentsText.length; index++) {
+        const character = argumentsText[index];
+
+        if (quote) {
+            current += character;
+            if (character === '\\' && index + 1 < argumentsText.length) {
+                index++;
+                current += argumentsText[index];
+            } else if (character === quote) {
+                quote = undefined;
+            }
+            continue;
+        }
+
+        if (character === '#') {
+            const newlineIndex = argumentsText.indexOf('\n', index);
+            if (newlineIndex === -1) {
+                break;
+            }
+            index = newlineIndex;
+            continue;
+        }
+
+        if (character === '\'' || character === '"') {
+            quote = character;
+            current += character;
+            continue;
+        }
+
         if ('([{'.includes(character)) {
             depth++;
-        }
-        if (')]}'.includes(character)) {
+        } else if (')]}'.includes(character)) {
             depth--;
         }
 
@@ -265,8 +361,28 @@ function parseConv2dArguments(argumentsText: string): ConvParams {
             : POSITIONAL_NAMES[position];
         const valueText = (keywordMatch ? keywordMatch[2] : part).trim();
 
-        // unknown keyword (groups, bias, ...) or too many positional arguments
-        const prefix = paramName ? PARAM_PREFIX[paramName] : undefined;
+        if (!paramName) {
+            return;
+        }
+
+        if (paramName === 'inChannels' || paramName === 'outChannels') {
+            if (/^\d+$/.test(valueText)) {
+                params[paramName] = valueText;
+            }
+            return;
+        }
+
+        if (paramName === 'bias') {
+            if (valueText === 'False') {
+                params.bias = '0';
+            } else if (valueText === 'True') {
+                params.bias = '1';
+            }
+            return;
+        }
+
+        // unknown keyword (groups, padding_mode, ...) or too many positional arguments
+        const prefix = PARAM_PREFIX[paramName];
         if (!prefix) {
             return;
         }
